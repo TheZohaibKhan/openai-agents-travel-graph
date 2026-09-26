@@ -15,8 +15,6 @@ Thank you for your interest in contributing to OpenAI Agents Travel Graph! This 
   - [Pull Request Process](#pull-request-process)
   - [Reporting Bugs](#reporting-bugs)
   - [Feature Requests](#feature-requests)
-  - [Community](#community)
-  - [License](#license)
 
 ## Code of Conduct
 
@@ -78,7 +76,7 @@ We follow these principles in our codebase:
 
 ### Python Style Guide
 
-- Use [uv](https://github.com/astral-sh/uv) as the package manager and for running Python commands
+- Use [uv](https://github.com/TheZohaibKhan/openai-agents-travel-graph) as the package manager and for running Python commands
 - Follow [PEP 8](https://www.python.org/dev/peps/pep-0008/) for Python code style
 - Use type hints for all function parameters and return values
 - Use Google-style docstrings
@@ -129,17 +127,3 @@ Feature requests are welcome! When submitting a feature request:
 - Provide a detailed description of the proposed feature
 - Explain the benefit to users
 - Suggest an implementation approach if possible
-
-Use the feature request template when creating new issues.
-
-## Community
-
-Join our community to discuss the project:
-
-- [GitHub Discussions](https://github.com/BjornMelin/openai-agents-travel-graph/discussions)
-
-## License
-
-By contributing to this project, you agree that your contributions will be licensed under the project's [MIT License](LICENSE).
-
-Thank you for contributing to OpenAI Agents Travel Graph! 🙏
