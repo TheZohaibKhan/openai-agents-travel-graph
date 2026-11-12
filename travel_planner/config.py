@@ -1,493 +1,116 @@
-"""
-Configuration management for the Travel Planner system.
+"""Settings, read from the .env file (or normal environment variables)."""
 
-This module handles loading and managing configuration for the entire
-travel planning system, including environment variables, API keys,
-and default settings for agents and services.
-"""
+from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from enum import Enum
+from pathlib import Path
 
 from dotenv import load_dotenv
-from loguru import logger
-from pydantic import BaseModel, Field, field_validator
 
-# Load environment variables from .env file
-load_dotenv()
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+ENV_FILE = PROJECT_ROOT / ".env"
 
+# Free-tier friendly default. "Flash-Lite" models have a much bigger free
+# daily allowance than the bigger "Flash" models.
+DEFAULT_MODEL = "gemini-3.5-flash-lite"
 
-class LogLevel(str, Enum):
-    """Log levels supported by the system."""
+# Used automatically (in this order) when the chosen model is out of quota
+# or not available to your key.
+BUILTIN_FALLBACKS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
 
-    DEBUG = "DEBUG"
-    INFO = "INFO"
-    WARNING = "WARNING"
-    ERROR = "ERROR"
-    CRITICAL = "CRITICAL"
-
-
-class BrowserConfig(BaseModel):
-    """Configuration for browser automation."""
-
-    headless: bool = Field(
-        default=True,
-        description="Run browser in headless mode",
-    )
-    cache_ttl: int = Field(
-        default=3600,
-        description="Cache time to live in seconds",
-    )
-    timeout: int = Field(
-        default=30000,
-        description="Default timeout in milliseconds",
-    )
-    user_agent: str | None = Field(
-        default=None,
-        description="Custom user agent string",
-    )
-
-    @classmethod
-    def from_env(cls) -> "BrowserConfig":
-        """Create a BrowserConfig from environment variables."""
-        return cls(
-            headless=os.getenv("HEADLESS", "true").lower() == "true",
-            cache_ttl=int(os.getenv("CACHE_TTL", "3600")),
-            timeout=int(os.getenv("BROWSER_TIMEOUT", "30000")),
-            user_agent=os.getenv("USER_AGENT"),
-        )
+# Shown in the app's model picker.
+MODEL_CHOICES = [
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-3.6-flash",
+    "gemini-3.8-flash",
+]
 
 
-class AgentModelConfig(BaseModel):
-    """Configuration for an agent's LLM model."""
+def _secret(name: str) -> str | None:
+    """Read a value from Streamlit's secrets (used when deployed on Streamlit Community Cloud)."""
+    try:
+        import streamlit as st
 
-    name: str = Field(
-        default="gemini-3.6-flash",
-        description="Gemini model name to use",
-    )
-    temperature: float = Field(
-        default=0.7,
-        description="Model temperature",
-    )
-    max_tokens: int | None = Field(
-        default=None,
-        description="Max tokens to generate",
-    )
-
-    @field_validator("temperature")
-    @classmethod
-    def validate_temperature(cls, value: float) -> float:
-        """Validate temperature is within reasonable bounds."""
-        if not (0.0 <= value <= 1.0):
-            raise ValueError(
-                f"Temperature must be between 0.0 and 1.0, got {value}"
-            )
-        return value
-
-    @classmethod
-    def from_env(cls, prefix: str = "") -> "AgentModelConfig":
-        """Create an AgentModelConfig from environment variables."""
-        prefix = f"{prefix}_" if prefix else ""
-
-        return cls(
-            name=os.getenv(
-                f"{prefix}MODEL",
-                os.getenv("GEMINI_MODEL", "gemini-3.6-flash"),
-            ),
-            temperature=float(
-                os.getenv(f"{prefix}TEMPERATURE", "0.7")
-            ),
-            max_tokens=int(
-                os.getenv(f"{prefix}MAX_TOKENS", "0")
-            )
-            or None,
-        )
+        value = st.secrets.get(name)
+        return None if value is None else str(value)
+    except Exception:  # no secrets file, or not running inside Streamlit
+        return None
 
 
-class APIConfig(BaseModel):
-    """Configuration for external APIs."""
-
-    gemini_api_key: str = Field(
-        default="",
-        description="Google Gemini API key",
-    )
-    supabase_url: str = Field(
-        default="",
-        description="Supabase URL",
-    )
-    supabase_key: str = Field(
-        default="",
-        description="Supabase API key",
-    )
-    tavily_api_key: str | None = Field(
-        default=None,
-        description="Tavily API key",
-    )
-    firecrawl_api_key: str | None = Field(
-        default=None,
-        description="Firecrawl API key",
-    )
-
-    class ValidationError(Exception):
-        """Exception raised for API configuration validation errors."""
-
-        def __init__(
-            self,
-            missing_keys: list[str],
-            optional_missing: list[str] | None = None,
-        ):
-            self.missing_keys = missing_keys
-            self.optional_missing = optional_missing or []
-
-            message = (
-                f"Missing required API keys: {', '.join(missing_keys)}"
-            )
-
-            if optional_missing:
-                message += (
-                    f". Optional keys missing: "
-                    f"{', '.join(optional_missing)}"
-                )
-
-            super().__init__(message)
-
-    @classmethod
-    def from_env(cls) -> "APIConfig":
-        """Create an APIConfig from environment variables."""
-        return cls(
-            gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
-            supabase_url=os.getenv("SUPABASE_URL", ""),
-            supabase_key=os.getenv("SUPABASE_KEY", ""),
-            tavily_api_key=os.getenv("TAVILY_API_KEY"),
-            firecrawl_api_key=os.getenv("FIRECRAWL_API_KEY"),
-        )
-
-    def validate(self, raise_error: bool = False) -> bool:
-        """
-        Validate that required API keys are present.
-
-        Args:
-            raise_error: If True, raise ValidationError instead of
-                returning False.
-
-        Returns:
-            True if all required keys are present, False otherwise.
-
-        Raises:
-            ValidationError: If raise_error is True and validation fails.
-        """
-        missing_keys = []
-        optional_missing = []
-
-        # Required keys
-        if not self.gemini_api_key:
-            missing_keys.append("GEMINI_API_KEY")
-
-        if not self.supabase_url:
-            missing_keys.append("SUPABASE_URL")
-
-        if not self.supabase_key:
-            missing_keys.append("SUPABASE_KEY")
-
-        # Optional keys
-        if not self.tavily_api_key:
-            optional_missing.append("TAVILY_API_KEY")
-
-        if not self.firecrawl_api_key:
-            optional_missing.append("FIRECRAWL_API_KEY")
-
-        if missing_keys:
-            error_msg = (
-                f"Missing required API keys: "
-                f"{', '.join(missing_keys)}"
-            )
-
-            if optional_missing:
-                logger.warning(
-                    f"Optional API keys missing: "
-                    f"{', '.join(optional_missing)}. "
-                    f"Some features may be limited."
-                )
-
-            logger.error(error_msg)
-
-            if raise_error:
-                raise self.ValidationError(
-                    missing_keys,
-                    optional_missing,
-                )
-
-            return False
-
-        if optional_missing:
-            logger.warning(
-                f"Optional API keys missing: "
-                f"{', '.join(optional_missing)}. "
-                f"Some features may be limited."
-            )
-
-        return True
+def _get(name: str) -> str | None:
+    """Environment variable / .env first, then Streamlit secrets."""
+    return os.getenv(name) or _secret(name)
 
 
-class SystemConfig(BaseModel):
-    """System-wide configuration."""
+def _int(value: str | None, default: int) -> int:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
 
-    log_level: LogLevel = Field(
-        default=LogLevel.INFO,
-        description="Logging level",
-    )
-    environment: str = Field(
-        default="development",
-        description="Environment (development, staging, production)",
-    )
-    max_concurrency: int = Field(
-        default=3,
-        description="Maximum concurrent operations",
-    )
-    default_budget: float = Field(
-        default=2000,
-        description="Default budget amount",
-    )
-    default_currency: str = Field(
-        default="USD",
-        description="Default currency",
-    )
 
-    @classmethod
-    def from_env(cls) -> "SystemConfig":
-        """Create a SystemConfig from environment variables."""
-        return cls(
-            log_level=LogLevel(
-                os.getenv("LOG_LEVEL", "INFO")
-            ),
-            environment=os.getenv(
-                "ENVIRONMENT",
-                "development",
-            ),
-            max_concurrency=int(
-                os.getenv("MAX_CONCURRENCY", "3")
-            ),
-            default_budget=float(
-                os.getenv("DEFAULT_BUDGET", "2000")
-            ),
-            default_currency=os.getenv(
-                "DEFAULT_CURRENCY",
-                "USD",
-            ),
-        )
+def _clean(value: str | None) -> str:
+    """Remove spaces and accidental quotes around a value."""
+    if value is None:
+        return ""
+    return value.strip().strip('"').strip("'").strip()
 
 
 @dataclass
-class TravelPlannerConfig:
-    """Main configuration class for the Travel Planner system."""
+class Settings:
+    api_key: str = ""
+    model: str = DEFAULT_MODEL
+    fallback_models: list[str] = field(default_factory=list)
+    default_currency: str = "USD"
+    save_to_supabase: bool = False
+    supabase_url: str = ""
+    supabase_key: str = ""
+    # Public-demo protections (see README "Share it online")
+    public_mode: bool = False      # hides saved trips, stores nothing on the server
+    daily_trip_limit: int = 0      # max trips per day for everyone together (0 = no limit)
+    session_trip_limit: int = 0    # max trips per visitor session (0 = no limit)
 
-    api: APIConfig = field(
-        default_factory=APIConfig.from_env
+    @property
+    def model_chain(self) -> list[str]:
+        """Primary model first, then fallbacks, no duplicates."""
+        chain: list[str] = []
+        for name in [self.model, *self.fallback_models]:
+            if name and name not in chain:
+                chain.append(name)
+        return chain
+
+
+def get_settings(model_override: str | None = None) -> Settings:
+    """Read settings fresh from .env / environment / Streamlit secrets every time."""
+    load_dotenv(ENV_FILE, override=False)
+
+    model = _clean(model_override) or _clean(_get("GEMINI_MODEL")) or DEFAULT_MODEL
+
+    extra = _clean(_get("GEMINI_FALLBACK_MODELS"))
+    fallbacks = [m.strip() for m in extra.split(",") if m.strip()] if extra else []
+    for name in BUILTIN_FALLBACKS:
+        if name not in fallbacks:
+            fallbacks.append(name)
+
+    public = _clean(_get("PUBLIC_MODE")).lower() in {"1", "true", "yes"}
+    return Settings(
+        api_key=_clean(_get("GEMINI_API_KEY")) or _clean(_get("GOOGLE_API_KEY")),
+        model=model,
+        fallback_models=fallbacks,
+        default_currency=(_clean(_get("DEFAULT_CURRENCY")) or "USD").upper()[:3],
+        save_to_supabase=_clean(_get("SAVE_TO_SUPABASE")).lower() in {"1", "true", "yes"},
+        supabase_url=_clean(_get("SUPABASE_URL")),
+        supabase_key=_clean(_get("SUPABASE_KEY")),
+        public_mode=public,
+        daily_trip_limit=_int(_get("DAILY_TRIP_LIMIT"), 40 if public else 0),
+        session_trip_limit=_int(_get("SESSION_TRIP_LIMIT"), 5 if public else 0),
     )
-    system: SystemConfig = field(
-        default_factory=SystemConfig.from_env
-    )
-    browser: BrowserConfig = field(
-        default_factory=BrowserConfig.from_env
-    )
-    agent_models: dict[str, AgentModelConfig] = field(
-        default_factory=dict
-    )
-
-    def __post_init__(self):
-        """Initialize agent models if not provided."""
-        if not self.agent_models:
-            self.agent_models = {
-                "orchestrator": AgentModelConfig.from_env(
-                    "ORCHESTRATOR"
-                ),
-                "destination": AgentModelConfig.from_env(
-                    "DESTINATION"
-                ),
-                "flight": AgentModelConfig.from_env(
-                    "FLIGHT"
-                ),
-                "accommodation": AgentModelConfig.from_env(
-                    "ACCOMMODATION"
-                ),
-                "transportation": AgentModelConfig.from_env(
-                    "TRANSPORTATION"
-                ),
-                "activity": AgentModelConfig.from_env(
-                    "ACTIVITY"
-                ),
-                "budget": AgentModelConfig.from_env(
-                    "BUDGET"
-                ),
-            }
-
-    class ConfigurationError(Exception):
-        """Exception raised for configuration validation errors."""
-
-        pass
-
-    def validate(self, raise_error: bool = False) -> bool:
-        """
-        Validate the entire configuration.
-
-        Args:
-            raise_error: If True, raise ConfigurationError instead
-                of returning False.
-
-        Returns:
-            True if configuration is valid, False otherwise.
-
-        Raises:
-            ConfigurationError: If validation fails and
-                raise_error is True.
-        """
-        try:
-            # Validate API configuration
-            self.api.validate(raise_error=True)
-
-            # Validate browser configuration
-            if self.browser.timeout <= 0:
-                raise ValueError(
-                    "Browser timeout must be positive"
-                )
-
-            # Validate system configuration
-            if self.system.max_concurrency <= 0:
-                raise ValueError(
-                    "Max concurrency must be positive"
-                )
-
-            return True
-
-        except Exception as e:
-            if isinstance(e, self.api.ValidationError):
-                # Already logged by APIConfig.validate
-                pass
-            else:
-                logger.error(
-                    f"Configuration validation failed: {e!s}"
-                )
-
-            if raise_error:
-                raise self.ConfigurationError(
-                    f"Configuration validation failed: {e!s}"
-                ) from e
-
-            return False
-
-    def get_agent_model(
-        self,
-        agent_type: str,
-    ) -> AgentModelConfig:
-        """
-        Get model configuration for a specific agent type.
-
-        Args:
-            agent_type: Type of agent to get model config for.
-
-        Returns:
-            AgentModelConfig for the requested agent type,
-            or a Gemini default if not found.
-        """
-        return self.agent_models.get(
-            agent_type,
-            self.agent_models.get(
-                "default",
-                AgentModelConfig(
-                    name=os.getenv(
-                        "GEMINI_MODEL",
-                        "gemini-3.6-flash",
-                    )
-                ),
-            ),
-        )
 
 
-# Global configuration instance
-config = TravelPlannerConfig()
-
-
-def initialize_config(
-    custom_config_path: str | None = None,
-    validate: bool = True,
-    raise_on_error: bool = False,
-) -> TravelPlannerConfig:
-    """
-    Initialize and validate the configuration.
-
-    Args:
-        custom_config_path: Path to a custom .env file to load.
-        validate: Whether to validate the configuration.
-        raise_on_error: Whether to raise an exception on
-            validation failure.
-
-    Returns:
-        Initialized and validated configuration object.
-
-    Raises:
-        TravelPlannerConfig.ConfigurationError:
-            If validation fails and raise_on_error is True.
-        FileNotFoundError:
-            If custom_config_path is provided but does not exist.
-    """
-    # Load custom .env file if provided
-    if custom_config_path:
-        if not os.path.exists(custom_config_path):
-            error_msg = (
-                f"Custom configuration file not found: "
-                f"{custom_config_path}"
-            )
-            logger.error(error_msg)
-            raise FileNotFoundError(error_msg)
-
-        logger.info(
-            f"Loading custom configuration from "
-            f"{custom_config_path}"
-        )
-
-        load_dotenv(
-            custom_config_path,
-            override=True,
-        )
-
-        # Reload configuration into the existing global
-        # 'config' object.
-        config.api = APIConfig.from_env()
-        config.system = SystemConfig.from_env()
-        config.browser = BrowserConfig.from_env()
-
-        # Reset agent_models so __post_init__ re-populates
-        # them based on new environment variables.
-        config.agent_models = {}
-        config.__post_init__()
-
-    if validate:
-        is_valid = config.validate(
-            raise_error=raise_on_error
-        )
-
-        if not is_valid:
-            logger.warning(
-                "Configuration validation failed. "
-                "The application may not function correctly. "
-                "Please check your environment variables and "
-                "ensure all required API keys are set."
-            )
-
-            logger.info(
-                "Required environment variables: "
-                "GEMINI_API_KEY, SUPABASE_URL, SUPABASE_KEY"
-            )
-
-            logger.info(
-                "Optional environment variables: "
-                "TAVILY_API_KEY, FIRECRAWL_API_KEY"
-            )
-
-            logger.info(
-                "You can set these in a .env file in the project "
-                "root, or as environment variables in your shell."
-            )
-
-    return config
+def mask_key(key: str) -> str:
+    """Show only the start of a secret, e.g. 'AQ.A... (53 characters)'."""
+    if not key:
+        return "(missing)"
+    return f"{key[:4]}... ({len(key)} characters)"

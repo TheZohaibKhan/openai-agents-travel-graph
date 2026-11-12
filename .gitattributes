@@ -1,0 +1,6 @@
+# Keep line endings consistent so Windows does not show every file as "changed".
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary
+*.jpg binary
+*.zip binary

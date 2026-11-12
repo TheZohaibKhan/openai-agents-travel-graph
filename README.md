@@ -1,272 +1,166 @@
-# OpenAI Agents Travel Graph 🧳 ✈️ 🗺️
+# ✈️ AI Travel Planner
 
-A state-of-the-art multi-agent travel planning system powered by OpenAI Agents SDK and LangGraph orchestration. This system autonomously researches and plans comprehensive trips with optimized budgets, personalized recommendations, and real-time data through intelligent browser automation.
+Type a trip in plain English, for example:
 
-## Table of Contents
+> *Plan a 5 day trip to Goa for 2 people from Pune with a moderate budget. We love food and beaches.*
 
-- [OpenAI Agents Travel Graph 🧳 ✈️ 🗺️](#openai-agents-travel-graph--️-️)
-  - [Table of Contents](#table-of-contents)
-  - [Overview](#overview)
-  - [Key Features](#key-features)
-  - [Technology Stack](#technology-stack)
-  - [System Architecture](#system-architecture)
-  - [Installation](#installation)
-  - [Usage](#usage)
-  - [Development](#development)
-  - [Contributing](#contributing)
-  - [License](#license)
-  - [How to Cite](#how-to-cite)
+and get a complete, readable plan: destination overview, flight and hotel **estimates**, local transport,
+a day-by-day itinerary, a budget table and money-saving tips. You can download the plan as Markdown or JSON.
 
-## Overview
+Built with **Google Gemini** (the AI), **LangGraph** (the step-by-step workflow), **Streamlit** (the web page)
+and, optionally, **Supabase** (saving plans online).
 
-OpenAI Agents Travel Graph is an advanced AI-powered travel planning system that leverages the latest in multi-agent technology to automate the entire travel planning process. The system orchestrates specialized agents to handle different aspects of travel planning, from destination research and flight bookings to accommodation selection and activity planning.
+---
 
-By combining the power of the OpenAI Agents SDK with graph-based orchestration through LangGraph, the system can maintain complex workflows while providing personalized travel recommendations that meet user preferences and budget constraints.
+## What it does (and what it does not)
 
-## Key Features
+| ✅ Does | ❌ Does not |
+|---|---|
+| Understands a free-text trip request | Show live flight or hotel prices |
+| Plans destination, stays, transport, daily itinerary | Book anything |
+| Builds a budget and checks it against your budget | Browse travel websites |
+| Saves every plan in the `saved_plans` folder | Guarantee that a place is open or available |
 
-```mermaid
-mindmap
-  root((Travel<br>Planning<br>System))
-    (Multi-Agent Architecture)
-      [Destination Research]
-      [Flight Search]
-      [Accommodation]
-      [Transportation]
-      [Activities]
-    (Browser Automation)
-      [Self-healing]
-      [Parallel execution]
-      [Data extraction]
-    (Budget Management)
-      [Cost tracking]
-      [Value optimization]
-      [Alternative options]
-    (Personalization)
-      [Preference analysis]
-      [Custom recommendations]
-    (Knowledge Storage)
-      [Persistent memory]
-      [Entity relationships]
-```
+All prices are **AI estimates**. Always verify flights, hotels and visa/entry rules before booking.
 
-- 🤖 **Multi-Agent Architecture** - Specialized agents for different travel planning aspects
-- 💰 **Budget Optimization** - Intelligent allocation of budget across travel components
-- 🔍 **Real-time Research** - Autonomous web research for current travel information
-- 🌐 **Browser Automation** - Intelligent interaction with travel websites
-- 📋 **Detailed Itineraries** - Day-by-day schedules with activities and logistics
-- 💼 **Personalization** - Tailored recommendations based on user preferences
-- 🔄 **Alternative Suggestions** - Multiple options with comparisons
-- 📊 **Budget Breakdowns** - Transparent cost allocation and justification
-
-## Technology Stack
-
-- **Primary Framework**: [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) (Latest 2025 Release) - Core agent framework
-- **Orchestration**: [LangGraph v0.4+](https://github.com/langchain-ai/langgraph) - Multi-agent workflow management
-- **Browser Automation**: [Stagehand v2.0+](https://github.com/browserbase/stagehand) - AI-enhanced browser control
-- **Data Persistence**: [Supabase](https://supabase.com/) - Database and storage
-- **Research Tools**:
-  - [Firecrawl](https://firecrawl.dev/) - Web content extraction
-  - [Tavily API](https://tavily.com/) - Intelligent search
-  - [Context7](https://context7.com/) - Documentation access
-- **Memory Management**: Memory MCP Server - Persistent context across sessions
-
-For the full technology stack and detailed system architecture, see [Architecture & Requirements](docs/architecture-requirements.md).
-
-## System Architecture
-
-The system follows a comprehensive multi-layered architecture with specialized agents coordinated through LangGraph:
+## How it works
 
 ```mermaid
-flowchart TD
-    %% Main system layers
-    UI[User Interface Layer] --> OL
-    
-    %% Orchestration layer
-    subgraph OL[Orchestration Layer - LangGraph]
-        SM[State Management]
-        AWM[Agent Workflow Management]
-        CP[Context Preservation]
-    end
-    
-    %% Specialized agents
-    OL --> DRA[Destination Research Agent]
-    OL --> FSA[Flight Search Agent]
-    OL --> ASA[Accommodation Search Agent] 
-    OL --> TPA[Transportation Planning Agent]
-    OL --> APA[Activity Planning Agent]
-    
-    %% Browser automation & budget management
-    DRA & FSA & ASA & TPA & APA --> BAL[Browser Automation Layer]
-    BAL --> BMA[Budget Management Agent]
-    BMA --> KML[Knowledge & Memory Layer]
-    KML --> PS[Persistent Storage - Supabase]
-    
-    %% Styling
-    classDef systemLayer fill:#f9f9f9,stroke:#333,stroke-width:2px
-    classDef agent fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px
-    
-    class UI,OL,BAL,KML,PS systemLayer
-    class DRA,FSA,ASA,TPA,APA,BMA agent
+flowchart LR
+    U[You type a trip] --> A[1. Request Analyst]
+    A --> P[2. Trip Planner]
+    P --> B[3. Budget Analyst]
+    B --> F[Final plan + totals]
+    F --> S[(saved_plans folder / optional Supabase)]
+    F --> W[Streamlit page]
 ```
 
-Each specialized agent uses a combination of LLM capabilities and domain-specific tools to perform its tasks, with the orchestration layer maintaining state and ensuring proper handoffs between agents.
+Each of the 3 steps is **one call to Gemini** that must answer in a strict structure (so the page never has to
+guess). The totals, per-person cost and "over/under budget" are calculated by normal code, not by the AI.
+If the chosen Gemini model runs out of its free daily quota, the next model is tried automatically.
 
-### Agent Interaction Flow
+## Project layout
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant Orchestrator as Orchestration Agent
-    participant Destination as Destination Agent
-    participant Flight as Flight Agent
-    participant Hotel as Hotel Agent
-    
-    User->>Orchestrator: Travel Request
-    Orchestrator->>Destination: Research Request
-    Destination-->>Orchestrator: Destination Options
-    
-    par Flight & Hotel Search
-        Orchestrator->>Flight: Search Flights
-        Orchestrator->>Hotel: Search Accommodations
-    end
-    
-    Flight-->>Orchestrator: Flight Options
-    Hotel-->>Orchestrator: Accommodation Options
-    Orchestrator->>User: Complete Itinerary
-    
-    Note over User,Hotel: Human feedback loop can interrupt at any stage
+```
+app.py                  The web page (Streamlit)
+check_setup.py          Run this when something does not work. It tells you why.
+run_app.bat             Double-click to start the app (Windows)
+travel_planner/
+    config.py           Reads your .env file
+    models.py           The data shapes (request, plan, budget...)
+    prompts.py          The instructions given to Gemini
+    llm.py              Talks to Gemini; handles quota, retries, bad keys, errors
+    graph.py            The LangGraph workflow (3 steps + final assembly)
+    render.py           Turns a plan into Markdown
+    storage.py          Saves plans (local folder, optional Supabase)
+    usage.py            Daily trip counter that protects your free quota when public
+tests/                  Automatic tests (they use a fake Gemini; no internet needed)
+legacy/                 The old unfinished prototype, kept for reference only
+.env                    YOUR secrets (you create this; never uploaded to GitHub)
 ```
 
-For the complete detailed architecture diagram and component descriptions, see [Architecture & Requirements](docs/architecture-requirements.md).
+## Setup on Windows (one time)
 
-## Installation
+Open **Command Prompt** (press the Windows key, type `cmd`, press Enter), then:
 
-```bash
-# Clone the repository
-git clone https://github.com/BjornMelin/openai-agents-travel-graph.git
-cd openai-agents-travel-graph
-
-# Set up a virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows, use: venv\\Scripts\\activate
-
-# Install uv package manager
-curl -sSf https://astral.sh/uv/install.sh | bash
-
-# Install dependencies
-uv pip install -e ".[dev]"
-
-# Set up environment variables
-cp .env.example .env
-# Edit .env with your API keys and configuration
-
-# Set up Supabase database
-python supabase_setup.py init
+```bat
+cd /d "C:\path\to\openai-agents-travel-graph"
+python -m venv .venv
+.venv\Scripts\activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+copy .env.example .env
+notepad .env
 ```
 
-### Supabase Setup
+In Notepad, paste your key after `GEMINI_API_KEY=` (no quotes, no spaces), save, close. Get a free key at
+<https://aistudio.google.com/apikey> (keys starting with `AQ.` are the new normal format).
 
-This project uses Supabase for data persistence. You need to set up a Supabase project and configure it with the database schema. The `supabase_setup.py` script automates this process:
+Check everything works:
 
-```bash
-# Initialize the database with required tables and indexes
-python supabase_setup.py init
-
-# Check the status of your Supabase database
-python supabase_setup.py status
-
-# Reset the database (WARNING: This will delete all data)
-python supabase_setup.py reset
-
-# Create test data for development
-python supabase_setup.py init --test-data
+```bat
+python check_setup.py
 ```
 
-For more information about the database schema, see [Migrations README](travel_planner/data/migrations/README.md).
+## Run it
 
-## Usage
-
-Run the travel planner in interactive mode:
-
-```bash
-python -m travel_planner.main
+```bat
+cd /d "C:\path\to\openai-agents-travel-graph"
+.venv\Scripts\activate
+streamlit run app.py
 ```
 
-Or provide a query directly:
+(or just double-click `run_app.bat`). Your browser opens at <http://localhost:8501>. Press `Ctrl + C` in the
+black window to stop it.
 
-```bash
-python -m travel_planner.main --query "I want to visit Tokyo for a week in October" --origin "New York" --budget "3000-5000"
+## Run the automatic tests
+
+```bat
+pip install -r requirements-dev.txt
+python -m pytest -q
 ```
 
-For more options:
+## Free-tier limits (important)
 
-```bash
-python -m travel_planner.main --help
-```
+The free Gemini tier only allows a limited number of requests per day, and the limits change over time (see the
+rate-limit page in Google AI Studio for your exact numbers). One trip plan uses **3 requests**.
+Flash-Lite models normally have a far bigger free allowance than the larger Flash models, so
+`gemini-3.5-flash-lite` is the default. You can change the model in the sidebar or with `GEMINI_MODEL` in `.env`.
 
-## Development
+## Troubleshooting
 
-If you'd like to contribute to the development of this project, please follow these guidelines:
+| Message | What to do |
+|---|---|
+| "No Gemini API key was found" | `.env` is missing or `GEMINI_API_KEY=` is empty. |
+| "Google rejected the API key" | Create a new key at AI Studio and paste it again (no quotes). Then run `pip install -U google-genai`. |
+| "free Gemini quota is used up" | Wait for the daily reset, enable billing, or pick another model. |
+| "servers are busy" | Wait a minute and try again. |
+| Anything else | Run `python check_setup.py` and read the message. |
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for your changes
-5. Run the test suite with `uv run pytest`
-6. Submit a pull request
+## Optional: save plans to Supabase
 
-This project uses [uv](https://github.com/astral-sh/uv) as its Python package manager. For all Python-related commands, use `uv run` (e.g., `uv run pytest`, `uv run python script.py`).
+1. In Supabase open **SQL Editor**, paste the contents of `supabase_schema.sql`, click **Run**.
+2. `pip install supabase`
+3. In `.env` set `SAVE_TO_SUPABASE=true`, `SUPABASE_URL=...`, `SUPABASE_KEY=...`.
 
-### Package Management
+The table is locked down (Row Level Security), so it needs the secret **service_role** key. Keep that key only in
+your local `.env`, never share it, and never put it in a public place.
 
-This project now uses `pyproject.toml` for dependency management. The legacy `requirements.txt` files are kept only for backward compatibility.
+## Share it online (free): Streamlit Community Cloud
 
-To set up your development environment with uv:
+This app is a Streamlit app, which needs a server that stays running. **Vercel cannot host it** (Vercel runs
+short-lived serverless functions, not long-running servers). Streamlit's own free hosting is the right fit and
+works straight from your GitHub repository.
 
-```bash
-# Create a virtual environment and install all dependencies
-uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-uv pip install -e ".[dev]"
+1. Push the project to GitHub (see "Push to GitHub" in the chat guide, or `git add -A`, `git commit`, `git push`).
+2. Go to <https://share.streamlit.io> and sign in with GitHub.
+3. Click **Create app**, choose **"Yup, I have an app"**, then pick your repository, branch `master`,
+   and main file path `app.py`.
+4. Click **Advanced settings**. Choose Python 3.12, then paste into **Secrets** (use your own real key):
 
-# Run linting and type checking
-uv run ruff .
-uv run mypy .
+   ```toml
+   GEMINI_API_KEY = "paste-your-key-here"
+   GEMINI_MODEL = "gemini-3.5-flash-lite"
+   PUBLIC_MODE = "true"
+   DAILY_TRIP_LIMIT = "40"
+   SESSION_TRIP_LIMIT = "5"
+   ```
+5. Click **Deploy**. After a few minutes you get a link like `https://something.streamlit.app` to share.
 
-# Format code
-uv run black .
-uv run isort .
-```
+Good to know:
+- **Your key is never in GitHub.** It lives only in the Secrets box (and your local `.env`, which git ignores).
+- `PUBLIC_MODE` makes the site store nothing and hide "Saved trips", so visitors cannot see each other's plans.
+- The daily/per-visit limits protect your free Gemini quota from being used up by strangers. Keep billing off
+  on your Google AI Studio project unless you want to pay for heavy use.
+- Free apps may go to sleep when nobody visits and wake up when someone opens the link.
+- To change a setting later: app menu, **Settings**, **Secrets**.
 
-See the [CONTRIBUTING.md](CONTRIBUTING.md) file for more details.
+## Ideas for the future
 
-## Contributing
-
-Contributions are welcome! Please see our [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute to this project.
+- Live prices through a real flight/hotel API
+- Google Search grounding so the AI can check current events and opening hours
+- Login + a "my trips" page, deploy to Streamlit Community Cloud
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## How to Cite
-
-If you use this project in your research or work, please cite it as:
-
-```plaintext
-Melin, B. (2025). OpenAI Agents Travel Graph: A multi-agent system for autonomous travel planning.
-GitHub repository. https://github.com/BjornMelin/openai-agents-travel-graph
-```
-
-**BibTeX:**
-
-```bibtex
-@misc{openai-agents-travel-graph,
-  author = {Melin, Bjorn},
-  title = {OpenAI Agents Travel Graph: A multi-agent system for autonomous travel planning},
-  year = {2025},
-  publisher = {GitHub},
-  journal = {GitHub repository},
-  howpublished = {\url{https://github.com/BjornMelin/openai-agents-travel-graph}}
-}
-```
+MIT - see `LICENSE`.

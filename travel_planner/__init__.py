@@ -1,9 +1,3 @@
-"""
-AI Travel Planning System powered by Google Gemini and LangGraph.
+"""AI Travel Planner - Gemini + LangGraph + Streamlit."""
 
-This package implements a multi-agent travel planning system that helps users
-research destinations, find flights, book accommodations, plan transportation,
-schedule activities, and manage travel budgets.
-"""
-
-__version__ = "0.1.0"
+__version__ = "2.0.0"

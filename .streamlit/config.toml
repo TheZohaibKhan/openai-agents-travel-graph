@@ -1,0 +1,14 @@
+# Look and feel of the web page.
+[theme]
+base = "light"
+primaryColor = "#0E7C86"
+backgroundColor = "#F4F8FA"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#1B2B34"
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
