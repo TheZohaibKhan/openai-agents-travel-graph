@@ -57,7 +57,11 @@ html, body, [class*="css"], .stMarkdown, button, input, textarea { font-family: 
 h2, h3, h4 { color: #12313B; letter-spacing: -.2px; }
 [data-testid="stMetric"] { background: #fff; border: 1px solid #DCE8EC; border-radius: 18px; padding: 16px 20px;
   box-shadow: 0 4px 14px rgba(18, 49, 59, .06); }
-[data-testid="stMetricValue"] { font-weight: 800; color: #0B5E6B; }
+[data-testid="stMetricValue"] { font-weight: 800; color: #0B5E6B; font-size: clamp(1.25rem, 2.1vw, 2rem); }
+/* Never cut long numbers off with "..." - let them wrap onto a second line instead. */
+[data-testid="stMetricValue"], [data-testid="stMetricValue"] * { white-space: normal !important; overflow: visible !important;
+  text-overflow: clip !important; overflow-wrap: anywhere; line-height: 1.15; }
+[data-testid="stMetricDelta"], [data-testid="stMetricDelta"] * { white-space: normal !important; overflow: visible !important; }
 [data-testid="stMetricLabel"] p { color: #5C7480; font-weight: 600; text-transform: uppercase; font-size: .72rem; letter-spacing: .6px; }
 
 [data-testid="stVerticalBlockBorderWrapper"] { border-radius: 18px; }
