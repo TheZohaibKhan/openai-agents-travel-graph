@@ -35,3 +35,7 @@ class DailyCounter:
 
 
 COUNTER = DailyCounter()
+
+
+# Separate, smaller daily allowance for paid/limited live-price lookups.
+PRICE_COUNTER = DailyCounter()

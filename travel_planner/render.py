@@ -77,6 +77,19 @@ def plan_to_markdown(final: FinalPlan) -> str:
         )
     out.append("")
 
+    live = final.live_prices
+    if live and (live.flights or live.hotels):
+        out.append("## Live prices")
+        out.append(f"*From {live.source}, looked up {live.fetched_at}, for {live.depart_date} to {live.return_date}.*")
+        out.extend(f"- {n}" for n in compact(live.notes))
+        for f in live.flights:
+            stops = "non-stop" if f.stops == 0 else f"{f.stops} stop(s)"
+            out.append(f"- Flight: **{f.airline}** - {money(f.price_per_person, live.currency)} per person round trip, {stops}")
+        for h in live.hotels:
+            rating = f", rated {h.rating:.1f}" if h.rating else ""
+            out.append(f"- Hotel: **{h.name}** - {money(h.price_per_night, live.currency)} per room per night{rating}")
+        out.append("")
+
     out.append("## Where to stay (estimates)")
     for s in p.stays:
         out.append(

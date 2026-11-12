@@ -71,6 +71,14 @@ class Settings:
     public_mode: bool = False      # hides saved trips, stores nothing on the server
     daily_trip_limit: int = 0      # max trips per day for everyone together (0 = no limit)
     session_trip_limit: int = 0    # max trips per visitor session (0 = no limit)
+    # Live flight/hotel prices (SerpApi)
+    serpapi_key: str = ""
+    live_prices: bool = False      # True only when a SerpApi key exists and it is not switched off
+    price_daily_limit: int = 0     # max live-price lookups per day for everyone (0 = no limit)
+    # Share links (stored in Supabase)
+    enable_sharing: bool = False
+    app_url: str = ""              # your public address, used to build share links
+    share_session_limit: int = 5
 
     @property
     def model_chain(self) -> list[str]:
@@ -95,6 +103,10 @@ def get_settings(model_override: str | None = None) -> Settings:
             fallbacks.append(name)
 
     public = _clean(_get("PUBLIC_MODE")).lower() in {"1", "true", "yes"}
+    serp_key = _clean(_get("SERPAPI_API_KEY"))
+    live_flag = _clean(_get("LIVE_PRICES")).lower()
+    supa_url, supa_key = _clean(_get("SUPABASE_URL")), _clean(_get("SUPABASE_KEY"))
+    sharing_flag = _clean(_get("ENABLE_SHARING")).lower() in {"1", "true", "yes"}
     return Settings(
         api_key=_clean(_get("GEMINI_API_KEY")) or _clean(_get("GOOGLE_API_KEY")),
         model=model,
@@ -106,6 +118,12 @@ def get_settings(model_override: str | None = None) -> Settings:
         public_mode=public,
         daily_trip_limit=_int(_get("DAILY_TRIP_LIMIT"), 40 if public else 0),
         session_trip_limit=_int(_get("SESSION_TRIP_LIMIT"), 5 if public else 0),
+        serpapi_key=serp_key,
+        live_prices=bool(serp_key) and live_flag not in {"0", "false", "no"},
+        price_daily_limit=_int(_get("LIVE_PRICES_DAILY_LIMIT"), 4 if public else 0),
+        enable_sharing=sharing_flag and bool(supa_url) and bool(supa_key),
+        app_url=_clean(_get("APP_URL")).rstrip("/"),
+        share_session_limit=_int(_get("SHARE_SESSION_LIMIT"), 5),
     )
 
 

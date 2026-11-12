@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # --------------------------------------------------------------------------
 # Step 1: understanding the request
@@ -29,6 +29,17 @@ class TripRequest(BaseModel):
     interests: list[str] = Field(description="Interests such as food, history, beaches, hiking.")
     constraints: list[str] = Field(description="Special needs: kids, wheelchair access, vegetarian, etc.")
     assumptions: list[str] = Field(description="Any assumptions you had to make because info was missing.")
+    origin_iata: str = Field(description="3-letter IATA code of the main departure airport (e.g. PNQ), or empty string if unknown.")
+    destination_iata: str = Field(description="3-letter IATA code of the main airport for the destination (e.g. GOI), or empty string if unknown.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _old_saved_plans(cls, data):
+        """Plans saved before these two fields existed must still load."""
+        if isinstance(data, dict):
+            data.setdefault("origin_iata", "")
+            data.setdefault("destination_iata", "")
+        return data
 
 
 # --------------------------------------------------------------------------
@@ -120,10 +131,44 @@ class BudgetSummary(BaseModel):
     money_saving_tips: list[str] = Field(default_factory=list)
 
 
+class LiveFlight(BaseModel):
+    airline: str
+    price_per_person: float
+    duration_minutes: int = 0
+    stops: int = 0
+    departure: str = ""
+    arrival: str = ""
+    link: str = ""
+
+
+class LiveHotel(BaseModel):
+    name: str
+    price_per_night: float
+    total_price: float = 0.0
+    rating: float = 0.0
+    stars: int = 0
+    link: str = ""
+
+
+class LivePrices(BaseModel):
+    """Real prices looked up on Google Flights / Google Hotels (via SerpApi)."""
+
+    source: str = "Google Flights and Google Hotels (via SerpApi)"
+    currency: str = "USD"
+    depart_date: str = ""
+    return_date: str = ""
+    sample_dates: bool = False  # True when the user gave no dates and we picked example dates
+    flights: list[LiveFlight] = Field(default_factory=list)
+    hotels: list[LiveHotel] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+    fetched_at: str = Field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
+
+
 class FinalPlan(BaseModel):
     request: TripRequest
     plan: TripPlan
     budget: BudgetSummary
+    live_prices: LivePrices | None = None
     warnings: list[str] = Field(default_factory=list)
     models_used: list[str] = Field(default_factory=list)
     generated_at: str = Field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))

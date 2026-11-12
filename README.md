@@ -54,6 +54,8 @@ travel_planner/
     render.py           Turns a plan into Markdown
     storage.py          Saves plans (local folder, optional Supabase)
     usage.py            Daily trip counter that protects your free quota when public
+    prices.py           Live flight/hotel prices from Google via SerpApi (optional)
+    sharing.py          Share links stored in Supabase (optional)
 tests/                  Automatic tests (they use a fake Gemini; no internet needed)
 legacy/                 The old unfinished prototype, kept for reference only
 .env                    YOUR secrets (you create this; never uploaded to GitHub)
@@ -155,9 +157,53 @@ Good to know:
 - Free apps may go to sleep when nobody visits and wake up when someone opens the link.
 - To change a setting later: app menu, **Settings**, **Secrets**.
 
+## Real flight and hotel prices (optional)
+
+The AI normally gives *estimates*. With a SerpApi key the app also looks up **live prices from Google Flights and
+Google Hotels** and uses them in the budget. (Amadeus closed its free developer API in July 2026, so SerpApi is the
+practical choice.)
+
+1. Create a free account at <https://serpapi.com/users/sign_up?plan=free> and copy your API key from
+   <https://serpapi.com/manage-api-key>. Check their pricing page for the current free allowance (reported as
+   about 250 searches per month) and terms.
+2. Local use: add `SERPAPI_API_KEY=your_key` to `.env`.
+   Online: add `SERPAPI_API_KEY = "your_key"` to the app's **Secrets**.
+3. Restart the app. A checkbox "Include live flight & hotel prices" appears under *Optional details*.
+
+How it works and what to know:
+- One trip uses **2 searches** (flights + hotels). Repeated identical trips are cached for 1 hour and cost nothing.
+- Flights need a **"Travelling from"** city. Without it only hotels are looked up.
+- If you give no travel dates, example dates 30 days ahead are used and the page says so clearly.
+- Hotel prices are for a standard room for 2 guests; the budget multiplies by the rooms you need.
+- In public mode the app allows **4 live-price lookups per day** (`LIVE_PRICES_DAILY_LIMIT`) to protect your allowance.
+  After that, plans still work using AI estimates.
+- If a lookup fails for any reason, the plan still appears with AI estimates and a short notice.
+- Live prices come from Google and can change quickly. Always confirm on the booking site.
+
+## Share links (optional)
+
+"Create a shareable link" stores the finished plan in your Supabase project and gives a link like
+`https://your-app.streamlit.app/?plan=<long random id>`. Anyone with the link can view that plan. WhatsApp and email
+buttons for a short summary always work, with no setup.
+
+1. In Supabase: resume the project if it is paused, open **SQL Editor**, paste `supabase_schema.sql`, click **Run**.
+2. In **Project Settings, API Keys** create a **secret key** (starts with `sb_secret_`).
+3. Add to the app's **Secrets** (or `.env` locally):
+   ```toml
+   ENABLE_SHARING = "true"
+   SUPABASE_URL = "https://YOUR-PROJECT.supabase.co"
+   SUPABASE_KEY = "sb_secret_..."
+   APP_URL = "https://your-app.streamlit.app"
+   ```
+4. Restart the app.
+
+Good to know: free Supabase projects **pause after about a week without activity**, and share links will not open
+until you resume the project in the Supabase dashboard. The secret key lives only in your Secrets, never in GitHub.
+Each visitor can create up to 5 links per visit (`SHARE_SESSION_LIMIT`).
+
 ## Ideas for the future
 
-- Live prices through a real flight/hotel API
+- Booking links with your affiliate id
 - Google Search grounding so the AI can check current events and opening hours
 - Login + a "my trips" page, deploy to Streamlit Community Cloud
 

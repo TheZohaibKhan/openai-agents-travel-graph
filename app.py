@@ -10,7 +10,7 @@ import html
 import pandas as pd
 import streamlit as st
 
-from travel_planner import usage
+from travel_planner import prices, sharing, usage
 from travel_planner.config import MODEL_CHOICES, get_settings, mask_key
 from travel_planner.graph import STEP_LABELS, plan_trip_request
 from travel_planner.llm import PlannerError, build_llm
@@ -154,6 +154,23 @@ st.markdown(
 )
 
 
+# ---- Someone opened a share link (?plan=...) ---------------------------------------------------
+shared_id = st.query_params.get("plan", "")
+if shared_id and st.session_state.get("loaded_share") != shared_id:
+    st.session_state["loaded_share"] = shared_id
+    try:
+        st.session_state["result"] = sharing.load_shared(shared_id, settings)
+        st.session_state["viewing_shared"] = True
+        st.session_state["share_error"] = ""
+        st.session_state["save_note"] = ""
+    except sharing.ShareError as exc:
+        st.session_state["share_error"] = exc.user_message
+if st.session_state.get("share_error"):
+    st.error(st.session_state["share_error"])
+if st.session_state.get("viewing_shared"):
+    st.info("👋 You are viewing a trip plan that was shared with you. Want your own? Describe a trip below.")
+
+
 def use_example(text: str) -> None:
     st.session_state["query_text"] = text
 
@@ -189,6 +206,10 @@ with st.expander("⚙️ Optional details (these override anything the AI guesse
         end_date = d2.date_input("End date")
 
     interests = st.multiselect("Interests", INTERESTS)
+
+    want_live = False
+    if settings.live_prices:
+        want_live = st.checkbox("💶 Include live flight & hotel prices (needs 'Travelling from' for flights)", value=True)
 
 go = st.button("🌍 Plan my trip", type="primary")
 
@@ -234,11 +255,16 @@ if go:
                         elif name in STEP_LABELS:
                             st.write(f"✅ {STEP_LABELS[name]}")
 
-                    final = plan_trip_request(llm, query, collect_options(), on_step=on_step)
+                    fetcher = None
+                    if run_settings.live_prices and want_live:
+                        fetcher = prices.make_fetcher(run_settings.serpapi_key, run_settings.price_daily_limit)
+                    final = plan_trip_request(llm, query, collect_options(), on_step=on_step, price_fetcher=fetcher)
                     status.update(label="Trip plan ready!", state="complete", expanded=False)
 
                 st.session_state["result"] = final
                 st.session_state["save_note"] = ""
+                st.session_state["viewing_shared"] = False
+                st.query_params.clear()
                 if not run_settings.public_mode:
                     try:
                         path = save_plan_local(final)
@@ -301,7 +327,7 @@ if result:
 
     st.write("")
     tab_overview, tab_days, tab_travel, tab_budget, tab_download = st.tabs(
-        ["🌍 Overview", "🗓️ Itinerary", "✈️ Flights, stays & transport", "💰 Budget", "⬇️ Download"]
+        ["🌍 Overview", "🗓️ Itinerary", "✈️ Flights, stays & transport", "💰 Budget", "🔗 Share & download"]
     )
 
     # ---- Overview ---------------------------------------------------------
@@ -352,7 +378,45 @@ if result:
 
     # ---- Flights, stays, transport ------------------------------------------
     with tab_travel:
-        st.markdown("#### ✈️ Flights (estimates)")
+        live = result.live_prices
+        if live and (live.flights or live.hotels):
+            st.success(f"✅ Live prices from Google Flights and Google Hotels, checked {live.fetched_at.replace('T', ' ')} "
+                       f"for {live.depart_date} to {live.return_date}. Prices can change quickly, so check before booking.")
+            for note in compact(live.notes):
+                st.info(note)
+            if live.flights:
+                st.markdown("#### ✈️ Live flight prices (round trip, per person)")
+                cols = st.columns(max(1, min(3, len(live.flights))))
+                for i, f in enumerate(live.flights):
+                    with cols[i % len(cols)], st.container(border=True):
+                        st.markdown(f"**{f.airline}**")
+                        stops = "Non-stop" if f.stops == 0 else f"{f.stops} stop{'s' if f.stops != 1 else ''}"
+                        hours = f"{f.duration_minutes // 60}h {f.duration_minutes % 60}m" if f.duration_minutes else ""
+                        st.caption(" · ".join(x for x in (stops, hours) if x))
+                        st.markdown(f"### {money(f.price_per_person, live.currency)}")
+                        if f.departure:
+                            st.caption(f"Departs {f.departure}")
+                        if f.link:
+                            st.link_button("View on Google Flights", f.link)
+            if live.hotels:
+                st.markdown("#### 🏨 Live hotel prices (per room per night, 2 guests)")
+                cols = st.columns(max(1, min(3, len(live.hotels))))
+                for i, h in enumerate(live.hotels):
+                    with cols[i % len(cols)], st.container(border=True):
+                        st.markdown(f"**{h.name}**")
+                        extra = " · ".join(x for x in (f"{'★' * h.stars}" if h.stars else "",
+                                                       f"rated {h.rating:.1f}" if h.rating else "") if x)
+                        if extra:
+                            st.caption(extra)
+                        st.markdown(f"### {money(h.price_per_night, live.currency)}")
+                        if h.total_price:
+                            st.caption(f"{money(h.total_price, live.currency)} for the stay")
+                        if h.link:
+                            st.link_button("View details", h.link)
+            st.divider()
+            st.caption("Below: the AI's own estimates and ideas (not live prices).")
+
+        st.markdown("#### ✈️ Flights (AI estimates)")
         cols = st.columns(max(1, min(3, len(p.flights))))
         for i, f in enumerate(p.flights):
             with cols[i % len(cols)], st.container(border=True):
@@ -399,6 +463,8 @@ if result:
                 else:
                     st.error(f"Over your budget of {money(b.budget_total, cur)} by {money(abs(b.difference), cur)}.")
 
+        if any("Live price" in i.notes for i in b.items):
+            st.caption("💶 Flights and/or accommodation in this budget use live prices (see the notes column).")
         rows = [{"Category": i.category, f"Estimate ({cur})": round(i.amount), "Notes": i.notes} for i in b.items]
         rows.append({"Category": "TOTAL", f"Estimate ({cur})": round(b.total), "Notes": f"about {money(b.per_person, cur)} per person"})
         st.dataframe(rows, hide_index=True)
@@ -415,10 +481,37 @@ if result:
                               f"Estimate ({cur})": [round(d.estimated_cost) for d in p.days]}).set_index("Day")
         st.bar_chart(daily, color="#F4A261")
 
-    # ---- Download ---------------------------------------------------------
+    # ---- Share & download -------------------------------------------------
     with tab_download:
+        st.markdown("#### 🔗 Share this plan")
+        link = st.session_state.get("share_url", "") if st.session_state.get("share_for") == result.generated_at else ""
+        if sharing.sharing_ready(settings):
+            used = st.session_state.get("shares_made", 0)
+            limit_hit = bool(settings.share_session_limit) and used >= settings.share_session_limit
+            if st.button("🔗 Create a shareable link", disabled=limit_hit) and not limit_hit:
+                try:
+                    link = sharing.share_url(settings, sharing.create_share(result, settings))
+                    st.session_state["share_url"], st.session_state["share_for"] = link, result.generated_at
+                    st.session_state["shares_made"] = used + 1
+                except sharing.ShareError as exc:
+                    st.error(exc.user_message)
+                    if exc.technical:
+                        with st.expander("Technical details (for debugging)"):
+                            st.code(exc.technical)
+            if limit_hit:
+                st.caption("You have reached the share limit for this visit.")
+            if link:
+                st.code(link, language=None)
+                st.caption("Anyone who has this link can view this plan.")
+        message = sharing.summary_text(result, link)
+        c_wa, c_mail = st.columns(2)
+        c_wa.link_button("💬 Share on WhatsApp", sharing.whatsapp_link(message))
+        c_mail.link_button("✉️ Share by email", sharing.mailto_link(f"Trip plan: {r.destination}", message))
+        st.caption("These share a short summary. Use the downloads below to send the full plan.")
+
+        st.divider()
         slug = "".join(ch if ch.isalnum() else "-" for ch in r.destination.lower()).strip("-") or "trip"
-        st.markdown("#### Take your plan with you")
+        st.markdown("#### ⬇️ Download")
         st.download_button("⬇️ Download as Markdown (.md)", plan_to_markdown(result),
                            file_name=f"{slug}-trip-plan.md", mime="text/markdown")
         st.download_button("⬇️ Download as JSON (.json)", result.model_dump_json(indent=2),

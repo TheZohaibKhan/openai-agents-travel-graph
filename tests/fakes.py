@@ -17,7 +17,7 @@ from travel_planner.models import (
 
 def make_request(**overrides) -> TripRequest:
     data = dict(
-        destination="Goa, India", origin="Pune", start_date="", end_date="", num_days=3, travelers=2,
+        destination="Goa, India", origin="Pune", origin_iata="PNQ", destination_iata="GOI", start_date="", end_date="", num_days=3, travelers=2,
         budget_total=60000.0, currency="INR", travel_style="moderate", interests=["food", "beaches"],
         constraints=[], assumptions=["Assumed travel by train"],
     )

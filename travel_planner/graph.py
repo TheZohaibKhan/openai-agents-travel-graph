@@ -18,11 +18,14 @@ from langgraph.graph import END, START, StateGraph
 from travel_planner.llm import PlannerError
 from travel_planner.models import (
     BudgetAdvice,
+    BudgetItem,
     BudgetSummary,
     FinalPlan,
+    LivePrices,
     TripPlan,
     TripRequest,
 )
+from travel_planner.prices import PriceError, live_budget
 from travel_planner.prompts import ANALYZE_SYSTEM, BUDGET_SYSTEM, PLAN_SYSTEM
 
 MAX_DAYS = 14
@@ -30,6 +33,7 @@ MAX_DAYS = 14
 STEP_LABELS = {
     "analyze_request": "Understanding your request",
     "plan_trip": "Planning destination, flights, stays and daily itinerary",
+    "fetch_prices": "Checking live flight and hotel prices",
     "analyze_budget": "Working out the budget",
     "finish": "Putting the plan together",
 }
@@ -46,6 +50,7 @@ class PlanState(TypedDict, total=False):
     options: dict[str, Any]
     request: TripRequest
     plan: TripPlan
+    live: LivePrices
     advice: BudgetAdvice
     warnings: list[str]
     final: FinalPlan
@@ -145,7 +150,7 @@ def _clean_request(request: TripRequest, warnings: list[str]) -> TripRequest:
 # --------------------------------------------------------------------------
 
 
-def build_graph(llm: LLM):
+def build_graph(llm: LLM, price_fetcher: Callable[[TripRequest], LivePrices] | None = None):
     def analyze_request(state: PlanState) -> dict[str, Any]:
         options = state.get("options", {})
         warnings = list(state.get("warnings", []))
@@ -195,9 +200,25 @@ def build_graph(llm: LLM):
                 day.date = date.fromordinal(start.toordinal() + index - 1).isoformat()
         return {"plan": plan, "warnings": warnings}
 
+    def fetch_prices(state: PlanState) -> dict[str, Any]:
+        """Optional: look up real flight/hotel prices. Any problem just keeps the AI estimates."""
+        if price_fetcher is None:
+            return {}
+        warnings = list(state.get("warnings", []))
+        try:
+            live = price_fetcher(state["request"])
+        except PriceError as exc:
+            warnings.append(f"Live prices were not available ({exc.user_message}) so AI estimates are shown instead.")
+            return {"warnings": warnings}
+        except Exception:  # noqa: BLE001 - a price problem must never break a trip plan
+            warnings.append("Live prices were not available (unexpected problem) so AI estimates are shown instead.")
+            return {"warnings": warnings}
+        return {"live": live}
+
     def analyze_budget(state: PlanState) -> dict[str, Any]:
         request: TripRequest = state["request"]
         plan: TripPlan = state["plan"]
+        live: LivePrices | None = state.get("live")
 
         compact_plan = {
             "flights": [f.model_dump() for f in plan.flights],
@@ -211,6 +232,13 @@ def build_graph(llm: LLM):
             + "\n\nProposed plan estimates (JSON):\n"
             + json.dumps(compact_plan, ensure_ascii=False, indent=2)
         )
+        if live:
+            facts = live_budget(live, request)
+            if facts:
+                prompt += (
+                    "\n\nVERIFIED LIVE PRICES (use these exact amounts for these categories and mention that they are live):\n"
+                    + "\n".join(f"- {cat}: {amount:,.0f} {request.currency} ({note})" for cat, (amount, note) in facts.items())
+                )
         advice = llm.generate(BudgetAdvice, BUDGET_SYSTEM, prompt, temperature=0.3)
         return {"advice": advice}
 
@@ -218,6 +246,19 @@ def build_graph(llm: LLM):
         request: TripRequest = state["request"]
         plan: TripPlan = state["plan"]
         advice: BudgetAdvice = state["advice"]
+
+        # Real prices replace the AI's guess for flights and accommodation (done here, never by the AI).
+        live: LivePrices | None = state.get("live")
+        items = [item.model_copy() for item in advice.items]
+        if live:
+            for category, (amount, note) in live_budget(live, request).items():
+                key = "flight" if category == "Flights" else "accom"
+                match = next((i for i in items if i.category.lower().startswith(key)), None)
+                if match:
+                    match.amount, match.notes = amount, note
+                else:
+                    items.append(BudgetItem(category=category, amount=amount, notes=note))
+        advice = advice.model_copy(update={"items": items})
 
         # All arithmetic is done here, never by the AI.
         total = round(sum(max(0.0, item.amount) for item in advice.items), 2)
@@ -250,17 +291,20 @@ def build_graph(llm: LLM):
             budget=budget,
             warnings=warnings,
             models_used=list(getattr(llm, "models_used", [])),
+            live_prices=live,
         )
         return {"final": final}
 
     graph = StateGraph(PlanState)
     graph.add_node("analyze_request", analyze_request)
     graph.add_node("plan_trip", plan_trip)
+    graph.add_node("fetch_prices", fetch_prices)
     graph.add_node("analyze_budget", analyze_budget)
     graph.add_node("finish", finish)
     graph.add_edge(START, "analyze_request")
     graph.add_edge("analyze_request", "plan_trip")
-    graph.add_edge("plan_trip", "analyze_budget")
+    graph.add_edge("plan_trip", "fetch_prices")
+    graph.add_edge("fetch_prices", "analyze_budget")
     graph.add_edge("analyze_budget", "finish")
     graph.add_edge("finish", END)
     return graph.compile()
@@ -271,6 +315,7 @@ def plan_trip_request(
     user_request: str,
     options: dict[str, Any] | None = None,
     on_step: Callable[[str], None] | None = None,
+    price_fetcher: Callable[[TripRequest], LivePrices] | None = None,
 ) -> FinalPlan:
     """Run the whole workflow and return the finished plan.
 
@@ -281,7 +326,7 @@ def plan_trip_request(
     if not text:
         raise PlannerError("Please describe your trip first.")
 
-    graph = build_graph(llm)
+    graph = build_graph(llm, price_fetcher)
     state: dict[str, Any] = {"user_request": text, "options": options or {}, "warnings": []}
 
     if on_step:
@@ -289,7 +334,7 @@ def plan_trip_request(
     for update in graph.stream(state, stream_mode="updates"):
         for node_name, node_update in update.items():
             state.update(node_update or {})
-            if on_step:
+            if on_step and (node_name != "fetch_prices" or price_fetcher is not None):
                 on_step(node_name)
 
     final = state.get("final")

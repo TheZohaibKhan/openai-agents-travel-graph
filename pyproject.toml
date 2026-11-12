@@ -11,6 +11,7 @@ requires-python = ">=3.10"
 license = {file = "LICENSE"}
 dependencies = [
     "streamlit>=1.40",
+    "requests>=2.31",
     "google-genai>=2.25",
     "langgraph>=0.4",
     "pydantic>=2.6",
